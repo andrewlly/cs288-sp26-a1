@@ -6,6 +6,7 @@ You can change this code while keeping the function giving headers. You can add 
 import argparse
 import json
 import os
+import random
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, List, Set
@@ -25,7 +26,15 @@ def featurize_data(
 ) -> List[DataPointWithFeatures]:
     """Add features to each datapoint based on feature types"""
     # TODO: Implement this!
-    raise NotImplementedError
+    featurizer = make_featurize(feature_types)
+    ans = []
+    
+    for dp in data:
+        f = featurizer(dp.text)
+        new_dp = DataPointWithFeatures(dp.id, dp.text, dp.label, f)
+        ans.append(new_dp)
+        
+    return ans
 
 
 class PerceptronModel:
@@ -50,7 +59,11 @@ class PerceptronModel:
             The output score.
         """
         # TODO: Implement this! Expected # of lines: <10
-        raise NotImplementedError
+        score_val = 0.0
+        for feat_name, feat_value in datapoint.features.items():
+            key = self._get_weight_key(feat_name, label)
+            score_val += self.weights[key] * feat_value
+        return score_val
 
     def predict(self, datapoint: DataPointWithFeatures) -> str:
         """Predicts a label for an input.
@@ -62,7 +75,17 @@ class PerceptronModel:
             The predicted class.
         """
         # TODO: Implement this! Expected # of lines: <5
-        raise NotImplementedError
+        best_label = None
+        best_score = float("-inf")
+        
+        for label in self.labels:
+            score = self.score(datapoint, label)
+            
+            if score > best_score:
+                best_score = score
+                best_label = label
+
+        return best_label
 
     def update_parameters(
         self, datapoint: DataPointWithFeatures, prediction: str, lr: float
@@ -75,7 +98,16 @@ class PerceptronModel:
             lr: Learning rate.
         """
         # TODO: Implement this! Expected # of lines: <10
-        raise NotImplementedError
+        truth = datapoint.label
+        if prediction == truth:
+            return
+
+        for feat, val in datapoint.features.items():
+            true_key = self._get_weight_key(feat, truth)
+            self.weights[true_key] += lr * val
+
+            pred_key = self._get_weight_key(feat, prediction)
+            self.weights[pred_key] -= lr * val
 
     def train(
         self,
@@ -95,7 +127,18 @@ class PerceptronModel:
             lr: Learning rate.
         """
         # TODO: Implement this!
-        raise NotImplementedError
+        for dp in training_data:
+            self.labels.add(dp.label)
+
+        for epoch in range(num_epochs):
+            random.shuffle(training_data)
+            
+            for dp in training_data:
+                prediction = self.predict(dp)
+                self.update_parameters(dp, prediction, lr)
+            
+            val_acc = self.evaluate(val_data)
+            print(f"Epoch {epoch+1}: Acc: {val_acc:.2%}")
 
     def save_weights(self, path: str) -> None:
         with open(path, "w") as f:
@@ -116,8 +159,22 @@ class PerceptronModel:
         Returns:
             accuracy (float): The accuracy of the model on the data.
         """
-        # TODO: Implement this!
-        raise NotImplementedError
+        correct = 0
+        total = len(data)
+        pred_label = [] 
+
+        for dp in data:
+            pred = self.predict(dp)
+            pred_label.append(pred)
+            if pred == dp.label:
+                correct += 1
+
+        if save_path:
+            save_results(data, pred_label, save_path)
+        
+        if total == 0:
+            total = 1
+        return correct / total
 
 
 if __name__ == "__main__":

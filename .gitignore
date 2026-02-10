@@ -1,0 +1,8 @@
+/Part2/results/*
+bigram_predictions.npy
+eval_output_vocab_short.txt
+eval_output_vocab.txt
+eval_prefixes_short.txt
+eval_prefixes.txt
+neural_trigram_predictions.npy
+unigram_predictions.npy

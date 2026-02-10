@@ -42,7 +42,14 @@ class Tokenizer:
 
     def _pre_process_text(self, text: str) -> List[str]:
         # TODO: Implement this! Expected # of lines: 5~10
-        raise NotImplementedError
+        words = text.lower().split()
+        ans = []
+        
+        for word in words:
+            if word not in self.STOP_WORDS:
+                ans.append(word)
+                
+        return ans
 
     def __init__(self, data: List[DataPoint], max_vocab_size: int = None):
         corpus = " ".join([d.text for d in data])
@@ -56,7 +63,14 @@ class Tokenizer:
 
     def tokenize(self, text: str) -> List[int]:
         # TODO: Implement this! Expected # of lines: 5~10
-        raise NotImplementedError
+        token = self._pre_process_text(text)
+        ans = []
+        
+        for t in token:
+            if t in self.token2id:
+                ans.append(self.token2id[t])
+                
+        return ans
 
 
 def get_label_mappings(
@@ -98,7 +112,27 @@ class BOWDataset(Dataset):
         """
         dp: DataPoint = self.data[idx]
         # TODO: Implement this! Expected # of lines: ~20
-        raise NotImplementedError
+        token_id = self.tokenizer.tokenize(dp.text)
+        
+        if len(token_id) >= self.max_length:
+            token_id = token_id[:self.max_length]
+            length = self.max_length
+        else:
+            length = len(token_id)
+            padding_len = self.max_length - length
+            padding = [self.tokenizer.TOK_PADDING_INDEX] * padding_len
+            token_id = token_id + padding
+
+        if dp.label is not None:
+            label_id = self.label2id[dp.label]
+        else:
+            label_id = -1
+
+        feature_tensor = torch.tensor(token_id, dtype=torch.long)
+        length_tensor = torch.tensor(length, dtype=torch.long)
+        label_tensor = torch.tensor(label_id, dtype=torch.long)
+
+        return feature_tensor, length_tensor, label_tensor
 
 
 class MultilayerPerceptronModel(nn.Module):
@@ -114,7 +148,13 @@ class MultilayerPerceptronModel(nn.Module):
         super().__init__()
         self.padding_index = padding_index
         # TODO: Implement this!
-        raise NotImplementedError
+        embed_dim = 512
+        hidden_dim = 512
+        
+        self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=padding_index)
+        self.fc1 = nn.Linear(embed_dim, hidden_dim)
+        self.activation = nn.ReLU()
+        self.fc2 = nn.Linear(hidden_dim, num_classes)
 
     def forward(
         self, input_features_b_l: torch.Tensor, input_length_b: torch.Tensor
@@ -129,7 +169,18 @@ class MultilayerPerceptronModel(nn.Module):
             output_b_c: The output of the model.
         """
         # TODO: Implement this!
-        raise NotImplementedError
+        embeds_b_l_d = self.embedding(input_features_b_l)
+        
+        mask = (input_features_b_l != self.padding_index).unsqueeze(-1).float()
+        sum_embeds = (embeds_b_l_d * mask).sum(dim=1) 
+        
+        lengths = input_length_b.unsqueeze(-1).float().clamp(min=1.0)
+        avg_embeds = sum_embeds / lengths
+        
+        hidden = self.activation(self.fc1(avg_embeds))
+        output_b_c = self.fc2(hidden)
+        
+        return output_b_c
 
 
 class Trainer:
@@ -149,7 +200,14 @@ class Trainer:
         all_predictions = []
         dataloader = DataLoader(data, batch_size=32, shuffle=False)
         # TODO: Implement this!
-        raise NotImplementedError
+        self.model.eval()
+        with torch.no_grad():
+            for inputs_b_l, lengths_b, _ in dataloader:
+                logits = self.model(inputs_b_l, lengths_b)
+                preds = torch.argmax(logits, dim=1)
+                all_predictions.extend(preds.tolist())
+                
+        return all_predictions
 
     def evaluate(self, data: BOWDataset) -> float:
         """Evaluates the model on a dataset.
@@ -161,7 +219,19 @@ class Trainer:
             The accuracy of the model.
         """
         # TODO: Implement this!
-        raise NotImplementedError
+        dataloader = DataLoader(data, batch_size=32, shuffle=False)
+        self.model.eval()
+        correct = 0
+        total = 0
+        
+        with torch.no_grad():
+            for inputs_b_l, lengths_b, labels_b in dataloader:
+                logits = self.model(inputs_b_l, lengths_b)
+                preds = torch.argmax(logits, dim=1)
+                correct += (preds == labels_b).sum().item()
+                total += labels_b.size(0)
+                
+        return correct / total if total > 0 else 0.0
 
     def train(
         self,
@@ -181,21 +251,30 @@ class Trainer:
             num_epochs: The number of training epochs.
         """
         torch.manual_seed(0)
+        criterion = nn.CrossEntropyLoss()
         for epoch in range(num_epochs):
             self.model.train()
             total_loss = 0
             dataloader = DataLoader(training_data, batch_size=4, shuffle=True)
             for inputs_b_l, lengths_b, labels_b in tqdm(dataloader):
                 # TODO: Implement this!
-                raise NotImplementedError
-            per_dp_loss = 0
+                optimizer.zero_grad()
+                
+                output_b_c = self.model(inputs_b_l, lengths_b)
+                loss = criterion(output_b_c, labels_b)
+                
+                loss.backward()
+                optimizer.step()
+                
+                total_loss += loss.item()
+                count += 1
+            
+
 
             self.model.eval()
             val_acc = self.evaluate(val_data)
 
-            print(
-                f"Epoch: {epoch + 1:<2} | Loss: {per_dp_loss:.2f} | Val accuracy: {100 * val_acc:.2f}%"
-            )
+            print(f"Epoch: {epoch + 1:<2} Acc: {100 * val_acc:.2f}%")
 
 
 if __name__ == "__main__":
