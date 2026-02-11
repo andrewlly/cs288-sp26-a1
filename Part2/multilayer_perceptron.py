@@ -27,6 +27,7 @@ from pprint import pprint
 from typing import Dict, List, Tuple
 
 import pandas as pd
+import re
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
@@ -38,18 +39,25 @@ class Tokenizer:
     # The index of the padding embedding.
     # This is used to pad variable length sequences.
     TOK_PADDING_INDEX = 0
-    STOP_WORDS = set(pd.read_csv("stopwords.txt", header=None)[0])
+    STOP_WORDS = set(pd.read_csv("sentiment_stopword.txt", header=None)[0])
+    KEEP = {"no", "nor", "not", "never", "n't"}
+    STOP_WORDS = STOP_WORDS - KEEP
+
 
     def _pre_process_text(self, text: str) -> List[str]:
         # TODO: Implement this! Expected # of lines: 5~10
-        words = text.lower().split()
-        ans = []
+        # words = text.lower().split()
+        # ans = []
         
-        for word in words:
-            if word not in self.STOP_WORDS:
-                ans.append(word)
+        # for word in words:
+        #     if word not in self.STOP_WORDS:
+        #         ans.append(word)
                 
-        return ans
+        # return ans
+        text = text.lower()
+        text = re.sub(r"[^a-z0-9\s']", " ", text)  
+        words = text.split()
+        return [w for w in words if w not in self.STOP_WORDS]
 
     def __init__(self, data: List[DataPoint], max_vocab_size: int = None):
         corpus = " ".join([d.text for d in data])
@@ -148,13 +156,21 @@ class MultilayerPerceptronModel(nn.Module):
         super().__init__()
         self.padding_index = padding_index
         # TODO: Implement this!
-        embed_dim = 512
-        hidden_dim = 512
+        embed_dim = 300  
+        hidden_dim = 512 
         
         self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=padding_index)
+        
+        self.drop = nn.Dropout(0.5)
+        
         self.fc1 = nn.Linear(embed_dim, hidden_dim)
-        self.activation = nn.ReLU()
-        self.fc2 = nn.Linear(hidden_dim, num_classes)
+        self.act1 = nn.ReLU()
+        
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        self.act2 = nn.ReLU()
+        
+        self.fc3 = nn.Linear(hidden_dim, num_classes)
+
 
     def forward(
         self, input_features_b_l: torch.Tensor, input_length_b: torch.Tensor
@@ -169,18 +185,25 @@ class MultilayerPerceptronModel(nn.Module):
             output_b_c: The output of the model.
         """
         # TODO: Implement this!
-        embeds_b_l_d = self.embedding(input_features_b_l)
-        
-        mask = (input_features_b_l != self.padding_index).unsqueeze(-1).float()
-        sum_embeds = (embeds_b_l_d * mask).sum(dim=1) 
+        embeds = self.embedding(input_features_b_l)
+        mask = (input_features_b_l != self.padding_index).unsqueeze(-1).float() 
+        sum_embeds = (embeds * mask).sum(dim=1) 
         
         lengths = input_length_b.unsqueeze(-1).float().clamp(min=1.0)
-        avg_embeds = sum_embeds / lengths
+        pooled = sum_embeds / lengths
         
-        hidden = self.activation(self.fc1(avg_embeds))
-        output_b_c = self.fc2(hidden)
+        x = self.drop(pooled) 
         
-        return output_b_c
+        x = self.fc1(x)
+        x = self.act1(x)
+        x = self.drop(x)    
+        
+        x = self.fc2(x)
+        x = self.act2(x)
+        x = self.drop(x)   
+        
+        return self.fc3(x)
+
 
 
 class Trainer:
@@ -198,7 +221,7 @@ class Trainer:
 
         """
         all_predictions = []
-        dataloader = DataLoader(data, batch_size=32, shuffle=False)
+        dataloader = DataLoader(data, batch_size=64, shuffle=False)
         # TODO: Implement this!
         self.model.eval()
         with torch.no_grad():
@@ -255,7 +278,7 @@ class Trainer:
         for epoch in range(num_epochs):
             self.model.train()
             total_loss = 0
-            dataloader = DataLoader(training_data, batch_size=4, shuffle=True)
+            dataloader = DataLoader(training_data, batch_size=32, shuffle=True)
             for inputs_b_l, lengths_b, labels_b in tqdm(dataloader):
                 # TODO: Implement this!
                 optimizer.zero_grad()
@@ -267,7 +290,6 @@ class Trainer:
                 optimizer.step()
                 
                 total_loss += loss.item()
-                count += 1
             
 
 
@@ -320,7 +342,7 @@ if __name__ == "__main__":
     trainer = Trainer(model)
 
     print("Training the model...")
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-5)
     trainer.train(train_ds, val_ds, optimizer, num_epochs)
 
     # Evaluate on dev

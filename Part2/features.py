@@ -1,8 +1,14 @@
 from collections import ChainMap
 from typing import Callable, Dict, Set
-
+from collections import defaultdict
 import pandas as pd
 import re
+
+TOKEN_RE = re.compile(r"[A-Za-z']+|[.!?]")
+
+def tokenize(text: str):
+    return [t.lower() for t in TOKEN_RE.findall(text)]
+
 
 
 class FeatureMap:
@@ -18,99 +24,105 @@ class FeatureMap:
         return {f"{self.name}/{k}": v for k, v in d.items()}
     
 # ... (imports and FeatureMap class remain the same) ...
-
-# 1. Improved Sentiment with Negation Handling
-class ComplexSentiment(FeatureMap):
-    name = "sentiment"
+class SentimentLexicon(FeatureMap):
+    name = "lex"
 
     POS_WORDS = {
-        "good","great","love","excellent","amazing","wonderful","best","superb","perfect",
-        "funny","beautiful","liked","enjoy","fantastic","happy","entertaining","delightful",
-        "terrific","brilliant","smart","moving","touching","compelling","engaging","impressive",
-        "charming","captivating","enjoyable","effective","worth"
+        "good", "great", "love", "excellent", "amazing", "wonderful", "best", 
+        "superb", "perfect", "funny", "beautiful", "liked", "enjoy", "fantastic", 
+        "happy", "entertaining", "delightful", "terrific", "brilliant", "smart", 
+        "moving", "touching", "compelling", "engaging", "impressive", "worth",
+        "solid", "fresh", "masterpiece", "fun", "powerful", "engrossing", 
+        "captures", "remarkable", "delivers", "thoughtful", "warm", "hilarious", 
+        "rare", "honest", "rich", "fascinating", "intelligent", "satisfying", 
+        "crafted", "charming", "heart", "strong", "sweet", "memorable", "creative"
     }
+    
     NEG_WORDS = {
-        "bad","terrible","awful","worst","hate","boring","stupid","waste","sucks","horrible",
-        "mess","dull","poor","disappointment","fail","annoying","weak","predictable",
-        "derivative","overlong","pretentious","mediocre","pointless"
+        "bad", "terrible", "awful", "worst", "hate", "boring", "stupid", "waste", 
+        "sucks", "horrible", "mess", "dull", "poor", "disappointment", "fail", 
+        "annoying", "weak", "predictable", "derivative", "overlong", "pretentious", 
+        "mediocre", "pointless", "slow", "flat", "unfunny", "cliche", "garbage",
+        "contrived", "tired", "ugly", "bland", "tedious", "lack", "lacks", 
+        "loud", "ridiculous", "painful", "poorly", "messy", "suffers", "amateurish", 
+        "laughable", "tiresome", "incoherent", "mindless", "dry", "problem"
     }
 
-    # keep small + robust: we’ll also detect “isn’t/wasn’t/don’t/…” by suffix
-    NEGATION = {"not","no","never","nothing","neither","nowhere"}
-    CONTRAST = {"but","however","though","although","yet"}
-
     @classmethod
-    def _clean(cls, w: str) -> str:
-        # strip punctuation around words; keep internal apostrophes for "don't"
-        return re.sub(r"(^[^a-z0-9']+|[^a-z0-9']+$)", "", w.lower())
+    def featurize(self, text: str) -> Dict[str, float]:
+        words = set(re.split(r'[^a-z0-9]+', text.lower()))
+        
+        pos_count = len(words & self.POS_WORDS)
+        neg_count = len(words & self.NEG_WORDS)
+        
+        return self.prefix_with_name({
+            "pos_score": float(pos_count),
+            "neg_score": float(neg_count),
+            "net_score": float(pos_count - neg_count),
+            "has_sentiment": 1.0 if (pos_count > 0 or neg_count > 0) else 0.0
+        })
 
-    @classmethod
-    def _is_negator(cls, w: str) -> bool:
-        # handle: "not", "never", "can't", "isn't", "didn't", plus bare "n't"
-        if w in cls.NEGATION or w == "n't":
-            return True
-        return w.endswith("n't") or w in {"cant","cannot","wont","dont","didnt","isnt","wasnt","werent","shouldnt","wouldnt","couldnt"}
+class NegationInteraction(FeatureMap):
+    name = "neg"
+    NEGATORS = {"not","no","never","n't","neither","without","nowhere"}
 
     @classmethod
     def featurize(cls, text: str) -> Dict[str, float]:
-        raw = text.lower().split()
-        toks = [cls._clean(w) for w in raw]
-        toks = [t for t in toks if t]  # remove empty after cleaning
+        toks = tokenize(text)
+        f = {}
+        scope = 0
 
-        f: Dict[str, float] = {}
-
-        # 1) sentiment counts (capped) + balance
-        pos = sum(1 for t in toks if t in cls.POS_WORDS)
-        neg = sum(1 for t in toks if t in cls.NEG_WORDS)
-        f["pos"] = float(min(pos, 3))
-        f["neg"] = float(min(neg, 3))
-        f["pos_minus_neg"] = float(max(-3, min(3, pos - neg)))
-
-        # 2) short negation scope: next 2 tokens only
-        neg_scope = 0
         for t in toks:
-            if cls._is_negator(t):
-                f["has_negation"] = 1.0
-                neg_scope = 2
+            if t in {".","!","?"}:
+                scope = 0
                 continue
-
-            if neg_scope > 0:
-                if t in cls.POS_WORDS:
-                    f["negates_pos"] = 1.0   # "not good"
-                if t in cls.NEG_WORDS:
-                    f["negates_neg"] = 1.0   # "not bad"
-                neg_scope -= 1
-
-        # 3) contrast pivot: after "but/however/yet" matters more
-        pivot = None
-        for i, t in enumerate(toks):
-            if t in cls.CONTRAST:
-                pivot = i
-        if pivot is not None and pivot + 1 < len(toks):
-            after = toks[pivot+1:]
-            pos_a = sum(1 for t in after if t in cls.POS_WORDS)
-            neg_a = sum(1 for t in after if t in cls.NEG_WORDS)
-            f["has_contrast"] = 1.0
-            f["after_contrast_balance"] = float(max(-3, min(3, pos_a - neg_a)))
-
-        # 4) exclamation as a tiny intensity cue (cheap + safe)
-        if "!" in text:
-            f["has_exclaim"] = 1.0
+            if t in cls.NEGATORS or t.endswith("n't"):
+                f["has_negation"] = 1.0
+                scope = 3
+                continue
+            if scope > 0 and re.fullmatch(r"[a-z']+", t):
+                f[f"NEG_{t}"] = 1.0
+                scope -= 1
 
         return cls.prefix_with_name(f)
+
+    
+class ContrastFlow(FeatureMap):
+    name = "con"
+    CONTRAST_WORDS = {"but","however","although","yet","though"}
+
+    @classmethod
+    def featurize(cls, text: str) -> Dict[str, float]:
+        toks = tokenize(text)
+        pivot = -1
+        for i, t in enumerate(toks):
+            if t in cls.CONTRAST_WORDS:
+                pivot = i
+
+        if pivot == -1:
+            return cls.prefix_with_name({})
+
+        after = [t for t in toks[pivot+1:] if t not in {".","!","?"}]
+        pos_after = sum(1 for t in after if t in SentimentLexicon.POS_WORDS)
+        neg_after = sum(1 for t in after if t in SentimentLexicon.NEG_WORDS)
+
+        return cls.prefix_with_name({
+            "has_contrast": 1.0,
+            "after_balance": float(pos_after - neg_after),
+        })
+
 
 
 class Bigrams(FeatureMap):
     name = "bigrams"
 
     @classmethod
-    def featurize(self, text: str) -> Dict[str, float]:
-        features = {}
-        words = text.lower().split()
-        for i in range(len(words) - 1):
-            bigram = f"{words[i]}_{words[i+1]}"
-            features[bigram] = 1.0
-        return self.prefix_with_name(features)
+    def featurize(cls, text: str) -> Dict[str, float]:
+        toks = [t for t in tokenize(text) if t not in {".","!","?"}]
+        f = {}
+        for i in range(len(toks) - 1):
+            f[f"{toks[i]}_{toks[i+1]}"] = 1.0
+        return cls.prefix_with_name(f)
 
 
 class DomainFeatures(FeatureMap):
@@ -124,16 +136,12 @@ class DomainFeatures(FeatureMap):
         features = {}
         tokens = text.lower().split()
         
-        # Feature 1: Tech Jargon Count
         features["tech_count"] = float(sum(1 for t in tokens if t in cls.TECH_WORDS))
         
-        # Feature 2: Religion Jargon Count
         features["religion_count"] = float(sum(1 for t in tokens if t in cls.RELIGION_WORDS))
-        
-        # Feature 3: 'From' or 'Subject' lines (often in newsgroups headers)
+
         features["is_reply"] = 1.0 if "re:" in text.lower() else 0.0
         
-        # Feature 4: Contains an email address (looks for @ symbol inside a word)
         features["has_email"] = 1.0 if any("@" in t for t in tokens) else 0.0
 
         return cls.prefix_with_name(features)
@@ -151,8 +159,38 @@ class BagOfWords(FeatureMap):
         for word in words:
             if word not in self.STOP_WORDS: f[word] = 1.0
         return self.prefix_with_name(f)
-        
 
+class BagOfWordsCounts(FeatureMap):
+    name = "bowc"
+    STOP_WORDS = set(pd.read_csv("sentiment_stopword.txt", header=None)[0])
+
+    TOKEN_RE = re.compile(r"[A-Za-z']+")
+
+    @classmethod
+    def featurize(self, text: str) -> Dict[str, float]:
+        tokens = [t.lower() for t in self.TOKEN_RE.findall(text)]
+        f = defaultdict(float)
+        for tok in tokens:
+            if tok not in self.STOP_WORDS:
+                f[tok] += 1.0
+        return self.prefix_with_name(dict(f))
+
+
+class StylisticFeature(FeatureMap):
+    name = "style"
+
+    @classmethod
+    def featurize(cls, text: str) -> Dict[str, float]:
+        f = {}
+        if "!" in text:
+            f["has_exclaim"] = 1.0
+            
+        words = text.split()
+        caps_count = sum(1 for w in words if w.isupper() and len(w) > 1)
+        if caps_count > 0:
+            f["has_caps"] = 1.0
+            
+        return cls.prefix_with_name(f)
 
 class SentenceLength(FeatureMap):
     name = "len"
@@ -170,7 +208,9 @@ class SentenceLength(FeatureMap):
         return self.prefix_with_name(ret)
 
 
-FEATURE_CLASSES_MAP = {c.name: c for c in [BagOfWords, SentenceLength, ComplexSentiment, DomainFeatures, Bias, Bigrams]}
+FEATURE_CLASSES_MAP = {c.name: c for c in [BagOfWords, SentenceLength, SentimentLexicon, 
+                                           DomainFeatures, Bigrams, BagOfWordsCounts, 
+                                           NegationInteraction, ContrastFlow, StylisticFeature]}
 
 
 def make_featurize(
