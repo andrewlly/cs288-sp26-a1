@@ -51,20 +51,18 @@ def main():
     trainer = Trainer(model)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-    print("Training the model...")
     trainer.train(train_ds, val_ds, optimizer, num_epochs)
 
     dev_acc = trainer.evaluate(dev_ds)
-    print(f"[MLP SST2] Development accuracy: {100 * dev_acc:.2f}%")
+    print(f"MLP newsgroup accuracy: {100 * dev_acc:.2f}%")
     test_preds = trainer.predict(test_ds)
     test_preds = [id2label[pred] for pred in test_preds]
 
     save_results(
         test_data,
         test_preds,
-        os.path.join("results", "final_mlp_sst_test_predictions.csv"),
+        os.path.join("results", "mlp_newsgroups_test_predictions.csv"),
     )
-    print("Saved test predictions to results/final_mlp_sst_test_predictions.csv")
 
 if __name__ == "__main__":
     main()

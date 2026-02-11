@@ -21,12 +21,12 @@ def main():
     model = PerceptronModel()
     model.train(train_data, val_data, num_epochs=num_epochs, lr=lr)
     os.makedirs("results", exist_ok=True)
-    dev_pred_path  = os.path.join("results", "final_perceptron_sst_dev.csv")
-    test_pred_path = os.path.join("results", "final_perceptron_sst_test.csv")
-    weight_path    = os.path.join("results", "final_perceptron_sst_weights.json")
+    dev_pred_path  = os.path.join("results", "perceptron_newsgroups_dev.csv")
+    test_pred_path = os.path.join("results", "perceptron_newsgroups_test_predictions.csv")
+    weight_path    = os.path.join("results", "perceptron_newsgroups_weights.json")
 
     dev_acc = model.evaluate(dev_data, save_path=dev_pred_path)
-    print(f"Newsgroups perceptron accuracy: {dev_acc:.4f}")
+    print(f"newsgroups perceptron accuracy: {dev_acc:.4f}")
 
     _ = model.evaluate(test_data, save_path=test_pred_path)
     model.save_weights(weight_path)
