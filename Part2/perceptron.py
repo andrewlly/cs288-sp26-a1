@@ -134,11 +134,11 @@ class PerceptronModel:
             random.shuffle(training_data)
             
             for dp in training_data:
-                prediction = self.predict(dp)
-                self.update_parameters(dp, prediction, lr)
+                pred = self.predict(dp)
+                self.update_parameters(dp, pred, lr)
             
-            val_acc = self.evaluate(val_data)
-            print(f"Epoch {epoch+1}: Acc: {val_acc:.2%}")
+            acc = self.evaluate(val_data)
+            print(f"Epoch {epoch+1}: Acc: {acc:.2%}")
 
     def save_weights(self, path: str) -> None:
         with open(path, "w") as f:

@@ -27,6 +27,7 @@ class FeatureMap:
 class SentimentLexicon(FeatureMap):
     name = "lex"
 
+    # note part of these words list is expended with ai, but the idea is origianl
     POS_WORDS = {
         "good", "great", "love", "excellent", "amazing", "wonderful", "best", 
         "superb", "perfect", "funny", "beautiful", "liked", "enjoy", "fantastic", 
@@ -128,37 +129,87 @@ class Bigrams(FeatureMap):
 class DomainFeatures(FeatureMap):
     name = "domain"
 
-    TECH_WORDS = {"windows", "dos", "file", "ftp", "server", "drive", "disk", "scsi", "mac", "cpu", "memory", "chip"}
-    RELIGION_WORDS = {"god", "jesus", "christ", "bible", "church", "christian", "religion", "faith"}
-    
+    # note part of these words list is expended with ai, but the idea is origianl
+    COMP_WORDS = {
+        "windows","dos","ms","microsoft","mac","apple","ibm","pc","cpu","ram","memory",
+        "disk","drive","scsi","ide","motherboard","bios","driver","x","x11","xorg","window",
+        "graphics","image","gif","jpeg","png","3d","opengl","motif"
+    }
+
+    CRYPTO_WORDS = {"encrypt","encryption","crypto","cipher","rsa","des","aes","pgp","key","keys","public","private"}
+    SPACE_WORDS  = {"space","nasa","orbit","shuttle","launch","lunar","moon","mars","earth","solar","telescope","satellite"}
+    MED_WORDS    = {"doctor","md","disease","treatment","patient","symptom","medicine","medical","drug","pain","infection"}
+    ELEC_WORDS   = {"circuit","voltage","current","resistor","capacitor","transistor","diode","ohm","amp","amps","watt","pcb"}
+    AUTOS_WORDS  = {"car","cars","engine","dealer","ford","gm","honda","toyota","bmw","oil","tire","tires","transmission"}
+    MOTO_WORDS   = {"bike","bikes","motorcycle","motorcycles","harley","honda","yamaha","suzuki","kawasaki","helmet"}
+    BASEBALL_WORDS = {"baseball","mlb","pitcher","batting","hitting","inning","rbi","era","yankees","mets","dodgers"}
+    HOCKEY_WORDS   = {"hockey","nhl","puck","goalie","goals","leafs","oilers","canadiens","wings","bruins"}
+    GUNS_WORDS     = {"gun","guns","firearm","firearms","weapon","weapons","ammo","ammunition","rifle","pistol","handgun","nra"}
+    MIDEAST_WORDS  = {"israel","israeli","arab","palestinian","palestine","lebanon","syria","iran","iraq","gaza","jerusalem"}
+    RELIGION_WORDS = {"god","jesus","christ","bible","church","christian","faith","religion","atheism","atheist"}
+    FORSALE_WORDS  = {"forsale","for-sale","sale","selling","sell","price","$","obo","offer","shipping","shipped","condition"}
+    HEADER_CUES = {
+        "subject:": "has_subject",
+        "organization:": "has_org",
+        "lines:": "has_lines",
+        "nntp-posting-host:": "has_host",
+        "reply-to:": "has_replyto",
+        "writes:": "has_writes",
+    }
+
     @classmethod
     def featurize(cls, text: str) -> Dict[str, float]:
-        features = {}
-        tokens = text.lower().split()
-        
-        features["tech_count"] = float(sum(1 for t in tokens if t in cls.TECH_WORDS))
-        
-        features["religion_count"] = float(sum(1 for t in tokens if t in cls.RELIGION_WORDS))
+        t = text.lower()
 
-        features["is_reply"] = 1.0 if "re:" in text.lower() else 0.0
-        
-        features["has_email"] = 1.0 if any("@" in t for t in tokens) else 0.0
+        toks = tokenize(text)
+        word_toks = [x for x in toks if re.fullmatch(r"[a-z']+", x)]
+
+        features = {}
+        for k, feat_name in cls.HEADER_CUES.items():
+            if k in t:
+                features[feat_name] = 1.0
+        features["is_reply"] = 1.0 if ("re:" in t or "reply-to:" in t) else 0.0
+        features["has_email"] = 1.0 if "@" in t else 0.0
+        features["has_url"] = 1.0 if ("http" in t or "www." in t) else 0.0
+
+        def count_hits(wordset):
+            return float(sum(1 for w in word_toks if w in wordset))
+
+        features["comp_count"]     = count_hits(cls.COMP_WORDS)
+        features["crypto_count"]   = count_hits(cls.CRYPTO_WORDS)
+        features["space_count"]    = count_hits(cls.SPACE_WORDS)
+        features["med_count"]      = count_hits(cls.MED_WORDS)
+        features["elec_count"]     = count_hits(cls.ELEC_WORDS)
+        features["autos_count"]    = count_hits(cls.AUTOS_WORDS)
+        features["moto_count"]     = count_hits(cls.MOTO_WORDS)
+        features["baseball_count"] = count_hits(cls.BASEBALL_WORDS)
+        features["hockey_count"]   = count_hits(cls.HOCKEY_WORDS)
+        features["guns_count"]     = count_hits(cls.GUNS_WORDS)
+        features["mideast_count"]  = count_hits(cls.MIDEAST_WORDS)
+        features["relig_count"]    = count_hits(cls.RELIGION_WORDS)
+        features["forsale_count"]  = count_hits(cls.FORSALE_WORDS)
+
+        features["__BIAS__"] = 1.0
 
         return cls.prefix_with_name(features)
+
     
 class BagOfWords(FeatureMap):
     name = "bow"
     STOP_WORDS = set(pd.read_csv("stopwords.txt", header=None)[0])
-
+    TOKEN_RE = re.compile(r"[A-Za-z']+")
+    
     @classmethod
     def featurize(self, text: str) -> Dict[str, float]:
         # TODO: implement this! Expected # of lines: <5
         
-        words = text.lower().split()
-        f = {}
-        for word in words:
-            if word not in self.STOP_WORDS: f[word] = 1.0
-        return self.prefix_with_name(f)
+        tokens = [t.lower() for t in self.TOKEN_RE.findall(text)]
+        f = defaultdict(float)
+        for tok in tokens:
+            if tok not in self.STOP_WORDS:
+                f[tok] += 1.0
+        return self.prefix_with_name(dict(f))
+    
 
 class BagOfWordsCounts(FeatureMap):
     name = "bowc"

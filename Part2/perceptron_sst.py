@@ -5,8 +5,6 @@ from utils import DataType, load_data
 from perceptron import PerceptronModel, featurize_data
 
 def main():
-    random.seed(0)
-
     data_type = DataType("sst2")
     feature_types = {"bowc", "bigrams", "style", "lex", "neg", "con"} 
     num_epochs = 3 

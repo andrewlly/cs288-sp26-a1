@@ -14,17 +14,7 @@ from multilayer_perceptron import (
     Trainer,
 )
 
-def set_seeds(seed: int = 0):
-    random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-
 def main():
-    set_seeds(0)
-    os.makedirs("results", exist_ok=True)
 
     data_type = DataType("newsgroups")
     max_vocab_size = 20000
